@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2d4a2b"><link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Zaytin"><title>Zaytin</title>
+<style>
+:root{--bg:#f6f1e4;--card:#fffdf6;--ink:#23301f;--mut:#6a6a56;--g:#2d4a2b;--gold:#b08d3c;--line:#dcd4bd;--bad:#a63a2a;--ok:#2f6b3a;--warn:#a8741a}
+@media(prefers-color-scheme:dark){:root{--bg:#141c12;--card:#1d2819;--ink:#ebe6d3;--mut:#a3a68f;--g:#8fb286;--gold:#d2ad55;--line:#33402f;--bad:#e27d6b;--ok:#7fc18a;--warn:#e0b04f;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+header{background:var(--g);color:#f6f1e4;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px}header b{font-size:20px}
+main{max-width:860px;margin:0 auto;padding:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--mut);margin:8px 0 2px}input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+button{background:var(--g);color:#f6f1e4;border:0;border-radius:6px;padding:9px 14px;font:inherit;cursor:pointer;margin:8px 6px 0 0}button.s{background:none;color:var(--g);border:1px solid var(--g)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.tw{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.pill{border:1px solid currentColor;border-radius:99px;padding:1px 8px;font-size:12px}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}.chip{font-size:12px;background:rgba(255,255,255,.18);padding:2px 8px;border-radius:99px}
+nav{display:flex;gap:6px;margin-bottom:10px}nav button{margin:0}nav button.on{background:var(--gold);color:#fff}
+textarea{width:100%;min-height:100px;padding:9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}.note{border-left:4px solid var(--gold);padding:6px 10px;margin:8px 0;font-size:13px;background:var(--bg)}.note.bad{border-color:var(--bad)}.r{text-align:right}h2,h3{margin:.2em 0}
+</style></head><body>
+<header><b>Zaytin</b><span><span class="chip" id="net"></span> <span class="chip" id="sync"></span></span></header>
+<main id="m"><div class="card">Loading…</div></main>
+<script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,getDoc,onSnapshot,query,orderBy,writeBatch,serverTimestamp,increment} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import {firebaseConfig} from './firebase-config.js';
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const m=$('#m');
+if(firebaseConfig.apiKey==='PASTE_HERE'){m.innerHTML='<div class="card"><b>Setup needed.</b> Paste your Firebase web-app config into firebase-config.js, then redeploy. See README.md.</div>';throw 0}
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})});
+const INSP=['Packaging intact','Label matches order','Certificate of analysis received','Identity documents / SDS received'];
+const TYPES=['hair oil','balm / salve','soap','cream','lotion','shampoo','toner','gel','tea / powder','tincture / extract','other'],WATER=['cream','lotion','shampoo','toner','gel'];
+const RW=['owner','manager','production'],RR=['owner','manager','production','viewer'];
+let user=null,prof=null,lots=[],formulas=[],vers=[],batches=[],tab='lots',unsubs=[],pm={},ui={};
+const can=r=>!!prof&&r.includes(prof.role),today=()=>new Date().toISOString().slice(0,10),days=d=>Math.floor((new Date(d+'T00:00:00')-new Date(today()+'T00:00:00'))/864e5);
+const key=n=>String(n).trim().toLowerCase(),f=(n,p=2)=>(+n).toFixed(p),code=p=>p+today().replace(/-/g,'').slice(2)+'-'+Math.random().toString(36).slice(2,6).toUpperCase();
+const net=()=>{$('#net').textContent=navigator.onLine?'Online':'Offline'};addEventListener('online',net);addEventListener('offline',net);net();
+const sync=()=>{$('#sync').textContent=Object.values(pm).some(Boolean)?'Waiting to sync':'Synced'};
+const why=l=>l.status!=='Released'?l.status:!l.exp?'Missing expiry':days(l.exp)<0?'Expired':l.qty<=0?'Empty':'';
+function alloc(item,need){const ls=lots.filter(l=>key(l.item)==key(item)&&!why(l)).sort((a,b)=>a.exp<b.exp?-1:1);let left=need,out=[];for(const l of ls){if(left<=1e-9)break;const t=Math.min(l.qty,left);out.push({l,t});left-=t}return{out,short:Math.max(0,left),elig:ls.reduce((s,l)=>s+l.qty,0)}}
+function parse(t){const it=[],er=[];t.split('\n').map(x=>x.trim()).filter(Boolean).forEach((x,i)=>{const p=x.lastIndexOf(','),n=x.slice(0,p).trim(),a=parseFloat(x.slice(p+1));if(p<1||!(a>0))er.push('Line '+(i+1)+': use "Ingredient, grams" with a number above 0.');else if(it.some(y=>key(y.n)==key(n)))er.push('Line '+(i+1)+': "'+n+'" is listed twice.');else it.push({n,a})});return{it,er}}
+function scale(items,size,dp){const tot=items.reduce((s,i)=>s+i.a,0),fac=size/tot,rows=items.map(i=>({n:i.n,a:i.a,p:i.a/tot*100,x:+(i.a*fac).toFixed(dp)}));return{tot,fac,rows,sum:rows.reduce((s,r)=>s+r.x,0)}}
+const vsOf=fid=>vers.filter(x=>x.fid==fid).sort((a,b)=>a.v-b.v);
+function listen(name,set){return onSnapshot(query(collection(db,name),orderBy('createdAt','desc')),s=>{set(s.docs.map(d=>({id:d.id,...d.data()})));pm[name]=s.metadata.hasPendingWrites;sync();draw()},e=>{m.innerHTML='<div class="card bad">Could not load '+name+': '+esc(e.message)+'</div>'})}
+const audit=(wb,a,d)=>wb.set(doc(collection(db,'audit')),{action:a,detail:d,by:user.uid,at:serverTimestamp()});
+onAuthStateChanged(auth,async u=>{user=u;unsubs.forEach(x=>x());unsubs=[];prof=null;if(!u)return login();
+ try{const s=await getDoc(doc(db,'users',u.uid));prof=s.exists()?s.data():null}catch(e){}
+ if(!prof||!prof.active){m.innerHTML=`<div class="card"><b>No access yet.</b><p>Signed in as ${esc(u.email)}. Send the owner this ID: <code>${u.uid}</code></p><button class="s" id="o2">Sign out</button></div>`;$('#o2').onclick=()=>signOut(auth);return}
+ if(can(RR))unsubs=[listen('lots',x=>lots=x),listen('formulas',x=>formulas=x),listen('formulaVersions',x=>vers=x),listen('batches',x=>batches=x)];
+ draw()});
+function login(){m.innerHTML=`<div class="card"><h2>Sign in</h2><label>Email</label><input id="em" type="email" autocomplete="username"><label>Password</label><input id="pw" type="password" autocomplete="current-password"><button id="go">Sign in</button><p class="mut" id="er"></p><p class="mut" style="font-size:13px">Accounts are created by the owner in Firebase.</p></div>`;$('#go').onclick=()=>signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value).catch(e=>{$('#er').textContent='Sign-in failed: '+e.code})}
+function draw(){if(!prof)return;const tabs=can(RR)?[['lots','Lots'],['form','Formulas'],['prod','Production']]:[];tabs.push(['acct','Account']);if(!tabs.some(t=>t[0]==tab))tab=tabs[0][0];
+ m.innerHTML='<nav>'+tabs.map(([k,v])=>`<button class="${tab==k?'on':''}" data-a="tab" data-k="${k}">${v}</button>`).join('')+'</nav>'+({lots:vLots,form:vForm,prod:vProd,acct:vAcct}[tab])()}
+const vAcct=()=>`<div class="card"><h3>${esc(prof.name||user.email)}</h3><div>Role: <b>${esc(prof.role)}</b></div><div class="mut">${user.uid}</div><button class="s" data-a="out">Sign out</button></div>`;
+function vLots(){return (can(RW)?`<div class="card"><h3>Receive stock into a new lot</h3><div class="row"><div><label>Ingredient</label><input id="li"></div><div><label>Quantity (g)</label><input id="lq" type="number" min="0" step="any"></div><div><label>Expiry date</label><input id="le" type="date"></div><div><label>Supplier lot</label><input id="lt"></div><div><label>Cost per g (optional)</label><input id="lc" type="number" min="0" step="any"></div></div><label>Receipt inspection</label>${INSP.map((x,i)=>`<div><label style="display:inline"><input type="checkbox" id="ci${i}" style="width:auto"> ${x}</label></div>`).join('')}<p class="mut" style="font-size:13px">An unticked item puts the lot in Quarantine. Works offline.</p><button data-a="add">Receive lot</button></div>`:'')+
+ `<div class="card"><h3>Lots</h3>${lots.length?`<div class="tw"><table><tr><th>Lot</th><th>Ingredient</th><th class="r">Qty g</th><th>Expiry</th><th>Status</th></tr>${lots.map(l=>`<tr><td>${esc(l.id)}</td><td>${esc(l.item)}</td><td class="r">${f(l.qty)}</td><td>${l.exp||'<span class="bad">missing</span>'}</td><td>${why(l)?'<span class="pill bad">'+why(l)+'</span>':'<span class="pill ok">Eligible</span>'}</td></tr>`).join('')}</table></div>`:'<p class="mut">No lots yet.</p>'}</div>`}
+function receive(){const item=$('#li').value.trim(),qty=parseFloat($('#lq').value),insp=INSP.map((x,i)=>$('#ci'+i).checked);if(!item||!(qty>0))return alert('Enter the ingredient and a quantity above 0.');
+ const status=insp.includes(false)?'Quarantine':'Released',id=code('L'),c=$('#lc').value,wb=writeBatch(db);
+ wb.set(doc(db,'lots',id),{item,qty,exp:$('#le').value,supLot:$('#lt').value,cost:c===''?null:+c,status,insp,createdBy:user.uid,createdAt:serverTimestamp()});
+ wb.set(doc(collection(db,'stockMovements')),{lot:id,item,qty,type:'Receipt',reason:'Received',by:user.uid,at:serverTimestamp()});audit(wb,'Lot received',id+' '+item+' '+qty+' g');
+ wb.commit().catch(e=>alert('Not saved: '+e.message));if(status=='Quarantine')alert('Inspection incomplete: lot set to Quarantine.')}
+function vForm(){const ed=ui.edit?formulas.find(x=>x.id==ui.edit):null,lv=ed?vsOf(ed.id).pop():null;
+ let h=can(RW)?`<div class="card"><h3>${ed?'New version of '+esc(ed.name):'New formula'}</h3><label>Name</label><input id="fn" value="${ed?esc(ed.name):''}" ${ed?'disabled':''}><label>Product type</label><select id="ft">${TYPES.map(t=>`<option ${lv&&lv.type==t?'selected':''}>${t}</option>`).join('')}</select><label>Ingredients, one per line: name, grams</label><textarea id="fi">${lv?esc(lv.items.map(i=>i.n+', '+i.a).join('\n')):''}</textarea><label>${ed?'Reason for change (required)':'Notes'}</label><input id="fr"><button data-a="sf">${ed?'Save as new version':'Save master formula'}</button>${ed?'<button class="s" data-a="cf">Cancel</button>':''}<p class="mut" style="font-size:13px">Saved versions are never overwritten or deleted. Amounts are grams (mass only).</p></div>`:'';
+ h+=formulas.map(fm=>{const vs=vsOf(fm.id);if(!vs.length)return'';const vn=ui['v'+fm.id]??vs[vs.length-1].v,v=vs.find(x=>x.v==vn)||vs[vs.length-1],size=ui['s'+fm.id]??v.items.reduce((s,i)=>s+i.a,0),sc=scale(v.items,size,2);
+  return `<div class="card"><h3>${esc(fm.name)}</h3><span class="mut">${esc(v.type)}</span><div class="row"><div><label>Version</label><select data-c="ver" data-id="${fm.id}">${vs.map(x=>`<option value="${x.v}" ${x.v==v.v?'selected':''}>v${x.v}, ${x.date}</option>`).join('')}</select></div><div><label>Batch size (g)</label><input type="number" min="0" step="any" value="${size}" data-c="size" data-id="${fm.id}"></div></div><div class="mut" style="font-size:13px">Reason: ${esc(v.reason||'Initial version')}</div>
+  ${WATER.includes(v.type)?'<div class="note bad">Water-containing product: preservative, pH, compatibility and stability are not checked here.</div>':''}${v.type=='soap'?'<div class="note bad">Soap needs saponification calculations, which are not available. Do not use these amounts as a soap recipe.</div>':''}${v.type=='tincture / extract'?'<div class="note bad">Extracts need extraction-ratio calculations, which are not available.</div>':''}
+  <div class="tw"><table><tr><th>Ingredient</th><th class="r">Original g</th><th class="r">%</th><th class="r">Scaled g</th></tr>${sc.rows.map(r=>`<tr><td>${esc(r.n)}</td><td class="r">${r.a}</td><td class="r">${f(r.p)}</td><td class="r"><b>${r.x}</b></td></tr>`).join('')}<tr><th>Total</th><th class="r">${f(sc.tot)}</th><th class="r">100</th><th class="r">${f(sc.sum)}</th></tr></table></div><p class="mut" style="font-size:13px">Factor ${f(sc.fac,4)}. Correct maths does not mean the formula is safe, effective or stable.</p>${can(RW)?`<button class="s" data-a="ef" data-id="${fm.id}">Create new version</button>`:''}<button class="s" data-a="chk" data-id="${fm.id}">Check stock</button></div>`}).join('')||'<div class="card mut">No formulas yet.</div>';return h}
+function saveF(){const ex=ui.edit?formulas.find(x=>x.id==ui.edit):null,nm=ex?ex.name:$('#fn').value.trim(),{it,er}=parse($('#fi').value),rs=$('#fr').value.trim();
+ if(!nm)er.unshift('Enter a formula name.');if(!it.length&&!er.length)er.push('Add at least one ingredient.');if(ex&&!rs)er.push('Enter the reason for this change.');if(er.length)return alert(er.join('\n'));
+ const fid=ex?ex.id:doc(collection(db,'formulas')).id,v=ex?vsOf(fid).length+1:1,wb=writeBatch(db);
+ if(!ex)wb.set(doc(db,'formulas',fid),{name:nm,createdBy:user.uid,createdAt:serverTimestamp()});
+ wb.set(doc(db,'formulaVersions',fid+'_v'+v),{fid,v,type:$('#ft').value,items:it,reason:rs,date:today(),by:user.uid,createdAt:serverTimestamp()});audit(wb,ex?'Formula version':'Formula created',nm+' v'+v+(rs?': '+rs:''));
+ wb.commit().catch(e=>alert('Not saved: '+e.message));ui.edit=null;draw()}
+function sel(){const fm=formulas.find(x=>x.id==ui.pf)||formulas[0],vs=fm?vsOf(fm.id):[],v=vs.find(x=>x.v==ui.pv)||vs[vs.length-1];return{fm,vs,v}}
+function vProd(){if(!formulas.length)return'<div class="card mut">Create a formula first.</div>';const{fm,vs,v}=sel();if(!v)return'<div class="card mut">Loading…</div>';
+ const size=ui.ps??v.items.reduce((s,i)=>s+i.a,0),sc=scale(v.items,size,2);let ok=true;
+ const rows=sc.rows.map(r=>{const a=alloc(r.n,r.x),bad=lots.filter(l=>key(l.item)==key(r.n)&&why(l));if(a.short>0)ok=false;return `<tr><td>${esc(r.n)}</td><td class="r">${r.x}</td><td class="r">${f(a.elig)}</td><td class="${a.short>0?'bad':'ok'}"><b>${a.short>0?'Buy '+f(a.short):'Enough'}</b></td><td>${a.out.map(o=>esc(o.l.id)+': '+f(o.t)+' g').join('<br>')||'<span class="bad">no eligible lot</span>'}</td><td>${bad.map(l=>esc(l.id)+' ('+why(l)+')').join('<br>')||'-'}</td></tr>`}).join('');
+ return `<div class="card"><h3>Check before production</h3><div class="row"><div><label>Formula</label><select data-c="pf">${formulas.map(x=>`<option value="${x.id}" ${x.id==fm.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div><div><label>Version</label><select data-c="pv">${vs.map(x=>`<option value="${x.v}" ${x.v==v.v?'selected':''}>v${x.v}</option>`).join('')}</select></div></div><label>Batch size (g)</label><input type="number" min="0" step="any" value="${size}" data-c="ps">
+ <div class="tw"><table><tr><th>Ingredient</th><th class="r">Required g</th><th class="r">Eligible g</th><th>Result</th><th>Allocation (first expiring first)</th><th>Ineligible lots</th></tr>${rows}</table></div>
+ <div class="note ${ok?'':'bad'}"><b>${ok?'All ingredients are covered by eligible stock.':'Production cannot proceed: stock is short.'}</b> Expired, quarantined, failed, empty and no-expiry lots are never counted. Nothing is deducted until you confirm.</div>
+ ${ok&&can(RW)?`<h3>Confirm production</h3>${sc.rows.map(r=>`<label>${esc(r.n)} actual g (planned ${r.x})</label><input class="act" type="number" min="0" step="any" value="${r.x}" data-n="${esc(r.n)}" data-p="${r.x}">`).join('')}<label>Batch note / deviation reason (required if any amount differs)</label><input id="bn"><button data-a="go">Confirm production and deduct stock</button>`:''}</div>
+ <div class="card"><h3>Batches</h3>${batches.length?`<div class="tw"><table><tr><th>Batch</th><th>Product</th><th class="r">Size g</th><th>Date</th><th>Status</th></tr>${batches.slice(0,15).map(b=>`<tr><td>${esc(b.id)}</td><td>${esc(b.fname)} v${b.ver}</td><td class="r">${b.size}</td><td>${b.date}</td><td><span class="pill warn">${esc(b.status)}</span></td></tr>`).join('')}</table></div>`:'<p class="mut">None yet.</p>'}<p class="mut" style="font-size:13px">Batch release, checklists and costing are not in this version yet. Batches stay "Awaiting release".</p></div>`}
+function confirmProd(){const{fm,v}=sel(),note=$('#bn').value.trim(),plan=[];let diff=false;
+ for(const i of document.querySelectorAll('.act')){const act=parseFloat(i.value),p=+i.dataset.p;if(isNaN(act)||act<0)return alert('Enter a valid actual amount for '+i.dataset.n);if(Math.abs(act-p)>1e-9)diff=true;const a=alloc(i.dataset.n,act);if(a.short>0)return alert('Not enough eligible stock for '+i.dataset.n);plan.push({n:i.dataset.n,act,p,a})}
+ if(diff&&!note)return alert('Some amounts differ from plan. Enter a deviation reason.');if(!confirm('Deduct these amounts from stock now?'))return;
+ const bid=code('B'),wb=writeBatch(db),size=ui.ps??v.items.reduce((s,i)=>s+i.a,0);
+ plan.forEach(x=>x.a.out.forEach(o=>{wb.update(doc(db,'lots',o.l.id),{qty:increment(-o.t)});wb.set(doc(collection(db,'stockMovements')),{lot:o.l.id,item:o.l.item,qty:-o.t,type:'Production use',reason:bid+': planned '+x.p+' g, actual '+x.act+' g. '+note,by:user.uid,at:serverTimestamp()})}));
+ wb.set(doc(db,'batches',bid),{fid:fm.id,fname:fm.name,ver:v.v,type:v.type,size,date:today(),note,status:'Awaiting release',items:plan.map(x=>({n:x.n,p:x.p,a:x.act,lots:x.a.out.map(o=>({lot:o.l.id,t:o.t,c:o.l.cost??null}))})),by:user.uid,createdAt:serverTimestamp()});
+ audit(wb,'Production confirmed',bid+' '+fm.name+' v'+v.v+': '+plan.map(x=>x.n+' '+x.act+' g').join(', '));
+ wb.commit().catch(e=>alert('Not saved: '+e.message));ui.ps=undefined;alert('Batch '+bid+' created, awaiting release. Stock deducted.');draw()}
+const A={tab:d=>{tab=d.k;draw()},out:()=>signOut(auth),add:receive,sf:saveF,cf:()=>{ui.edit=null;draw()},ef:d=>{ui.edit=d.id;draw();scrollTo(0,0)},chk:d=>{ui.pf=d.id;ui.pv=undefined;ui.ps=undefined;tab='prod';draw()},go:confirmProd};
+const C={ver:t=>{ui['v'+t.dataset.id]=+t.value;ui['s'+t.dataset.id]=undefined;draw()},size:t=>{ui['s'+t.dataset.id]=+t.value;draw()},pf:t=>{ui.pf=t.value;ui.pv=undefined;ui.ps=undefined;draw()},pv:t=>{ui.pv=+t.value;ui.ps=undefined;draw()},ps:t=>{ui.ps=+t.value;draw()}};
+m.addEventListener('click',e=>{const t=e.target.closest('[data-a]');if(t&&!/INPUT|SELECT/.test(t.tagName)&&A[t.dataset.a])A[t.dataset.a](t.dataset)});
+m.addEventListener('change',e=>{const c=e.target.dataset.c;if(c&&C[c])C[c](e.target)});
+</script></body></html>
