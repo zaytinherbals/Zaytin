@@ -1,10 +1,10 @@
-// Paste your own web-app config from Firebase Console > Project settings > Your apps.
-// These values are not secrets; your security rules protect the data.
-export const firebaseConfig = {
-  apiKey: "PASTE_HERE",
-  authDomain: "PASTE_HERE",
-  projectId: "PASTE_HERE",
-  storageBucket: "PASTE_HERE",
-  messagingSenderId: "PASTE_HERE",
-  appId: "PASTE_HERE"
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyCPw57hMbu1YV2rNbHiUzImMdNWOv67yXA",
+  authDomain: "zaytin-herbal.firebaseapp.com",
+  projectId: "zaytin-herbal",
+  storageBucket: "zaytin-herbal.firebasestorage.app",
+  messagingSenderId: "96883763680",
+  appId: "1:96883763680:web:97d00a6735977431b52385",
+  measurementId: "G-JHNCD5M1B2"
 };
